@@ -5,9 +5,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -32,20 +29,11 @@ public class BinaryContent extends BaseEntity implements Serializable {
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
-    private BinaryContentUploadStatus uploadStatus;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "uploader_id")
-    private User uploader;
+    private BinaryContentUploadStatus uploadStatus = BinaryContentUploadStatus.WAITING;
 
     public BinaryContent(String fileName, Long size, String contentType) {
         this.fileName = fileName;
         this.size = size;
         this.contentType = contentType;
-        this.uploadStatus = BinaryContentUploadStatus.WAITING;
-    }
-
-    public void setUploadStatus(BinaryContentUploadStatus uploadStatus) {
-        this.uploadStatus = uploadStatus;
     }
 }

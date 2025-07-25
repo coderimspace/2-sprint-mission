@@ -6,7 +6,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.io.Serializable;
 import java.time.Instant;
 
 @Getter
@@ -16,7 +15,7 @@ import java.time.Instant;
     uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "channel_id"})
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class ReadStatus extends BaseUpdatableEntity implements Serializable {
+public class ReadStatus extends BaseUpdatableEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", columnDefinition = "UUID")
@@ -29,13 +28,14 @@ public class ReadStatus extends BaseUpdatableEntity implements Serializable {
     @Column(columnDefinition = "TIMESTAMP WITH TIME ZONE", nullable = false)
     private Instant lastReadAt;
 
+    @Column(nullable = false)
     private boolean notificationEnabled;
 
     public ReadStatus(User user, Channel channel, Instant lastReadAt) {
         this.user = user;
         this.channel = channel;
         this.lastReadAt = lastReadAt;
-        this.notificationEnabled = channel.getType() == ChannelType.PRIVATE;
+        this.notificationEnabled = channel.getType().equals(ChannelType.PRIVATE);
     }
 
     public void update(Instant newLastReadAt, Boolean newNotificationEnabled) {

@@ -15,11 +15,11 @@ import com.sprint.mission.discodeit.repository.UserRepository;
 import com.sprint.mission.discodeit.security.jwt.JwtService;
 import com.sprint.mission.discodeit.security.jwt.JwtSession;
 import com.sprint.mission.discodeit.service.UserService;
-import com.sprint.mission.discodeit.service.async.BinaryContentAsyncService;
 import com.sprint.mission.discodeit.storage.BinaryContentStorage;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -39,16 +39,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class BasicUserService implements UserService {
 
     private final UserRepository userRepository;
-    private final BinaryContentRepository binaryContentRepository;
-
     private final UserMapper userMapper;
-
+    private final BinaryContentRepository binaryContentRepository;
     private final BinaryContentStorage binaryContentStorage;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final BinaryContentAsyncService binaryContentAsyncService;
 
     @Transactional
+    @CacheEvict(value = "users", key = "'all'")
     @Override
     public UserDto create(UserCreateRequest userCreateRequest,
         Optional<BinaryContentCreateRequest> profileCreateRequest) {
@@ -75,17 +73,28 @@ public class BasicUserService implements UserService {
                 log.debug("Profile image bytes processed: size = {} bytes", bytes.length);
                 BinaryContent binaryContent = new BinaryContent(fileName, (long) bytes.length,
                     contentType);
-                binaryContent.setUploadStatus(BinaryContentUploadStatus.WAITING);
                 binaryContentRepository.save(binaryContent);
 
                 TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
                         @Override
                         public void afterCommit() {
-                            binaryContentAsyncService.uploadFile(binaryContent.getId(), bytes);
+                            binaryContentStorage.putAsync(binaryContent.getId(), bytes)
+                                .thenAccept(result -> {
+                                    log.debug("프로필 이미지 업로드 성공: {}", binaryContent.getId());
+                                    binaryContentRepository.updateUploadStatus(
+                                        binaryContent.getId(),
+                                        BinaryContentUploadStatus.SUCCESS);
+                                })
+                                .exceptionally(throwable -> {
+                                    log.error("프로필 이미지 업로드 실패: {}", throwable.getMessage());
+                                    binaryContentRepository.updateUploadStatus(
+                                        binaryContent.getId(),
+                                        BinaryContentUploadStatus.FAILED);
+                                    return null;
+                                });
                         }
-                    }
-                );
+                    });
                 return binaryContent;
             })
             .orElse(null);
@@ -128,6 +137,7 @@ public class BasicUserService implements UserService {
 
     @PreAuthorize("hasPermission(#userId,'User','update')")
     @Transactional
+    @CacheEvict(value = "users", key = "'all'")
     @Override
     public UserDto update(UUID userId, UserUpdateRequest userUpdateRequest,
         Optional<BinaryContentCreateRequest> profileCreateRequest) {
@@ -157,17 +167,27 @@ public class BasicUserService implements UserService {
                 log.debug("Updated profile image bytes: size = {} bytes", bytes.length);
                 BinaryContent binaryContent = new BinaryContent(fileName, (long) bytes.length,
                     contentType);
-                binaryContent.setUploadStatus(BinaryContentUploadStatus.WAITING);
                 binaryContentRepository.save(binaryContent);
-
                 TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
                         @Override
                         public void afterCommit() {
-                            binaryContentAsyncService.uploadFile(binaryContent.getId(), bytes);
+                            binaryContentStorage.putAsync(binaryContent.getId(), bytes)
+                                .thenAccept(result -> {
+                                    log.debug("프로필 이미지 업로드 성공: {}", binaryContent.getId());
+                                    binaryContentRepository.updateUploadStatus(
+                                        binaryContent.getId(),
+                                        BinaryContentUploadStatus.SUCCESS);
+                                })
+                                .exceptionally(throwable -> {
+                                    log.error("프로필 이미지 업로드 실패: {}", throwable.getMessage());
+                                    binaryContentRepository.updateUploadStatus(
+                                        binaryContent.getId(),
+                                        BinaryContentUploadStatus.FAILED);
+                                    return null;
+                                });
                         }
-                    }
-                );
+                    });
                 return binaryContent;
             })
             .orElse(null);
@@ -184,6 +204,7 @@ public class BasicUserService implements UserService {
 
     @PreAuthorize("hasPermission(#userId,'User','delete')")
     @Transactional
+    @CacheEvict(value = "users", key = "'all'")
     @Override
     public void delete(UUID userId) {
 

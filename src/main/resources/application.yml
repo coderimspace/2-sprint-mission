@@ -16,6 +16,14 @@ spring:
       - dev
   config:
     import: optional:file:.env[.properties]
+  cache:
+    type: caffeine
+    caffeine:
+      spec: "maximumSize=100,expireAfterAccess=600s"
+    cache-names:
+      - channelsByUser
+      - notificationByUser
+      - users
 
 management:
   endpoints:
@@ -25,6 +33,9 @@ management:
   endpoint:
     health:
       show-details: always
+  observations:
+    annotations:
+      enabled: true
 
 info:
   name: Discodeit

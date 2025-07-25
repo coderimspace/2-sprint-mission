@@ -16,11 +16,11 @@ public interface MessageService {
     MessageDto create(MessageCreateRequest messageCreateRequest,
                       List<BinaryContentCreateRequest> binaryContentCreateRequests);
 
-    MessageDto searchMessage(UUID messageId);
+    MessageDto find(UUID messageId);
 
     PageResponse<MessageDto> findAllByChannelId(UUID channelId, Instant createdAt, Pageable pageable);
 
-    MessageDto updateMessage(UUID messageId, MessageUpdateRequest request);
+    MessageDto update(UUID messageId, MessageUpdateRequest request);
 
-    void deleteMessage(UUID messageId);
+    void delete(UUID messageId);
 }

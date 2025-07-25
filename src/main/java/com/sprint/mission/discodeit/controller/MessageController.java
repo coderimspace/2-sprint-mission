@@ -7,6 +7,7 @@ import com.sprint.mission.discodeit.dto.message.MessageDto;
 import com.sprint.mission.discodeit.dto.message.MessageUpdateRequest;
 import com.sprint.mission.discodeit.dto.response.PageResponse;
 import com.sprint.mission.discodeit.service.MessageService;
+import io.micrometer.core.annotation.Timed;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,7 @@ public class MessageController implements MessageApi {
 
     private final MessageService messageService;
 
+    @Timed("message.create.async")
     @Override
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<MessageDto> create(
@@ -81,7 +83,7 @@ public class MessageController implements MessageApi {
 
         log.info("Updating message: id = {}", messageId);
 
-        MessageDto updatedMessage = messageService.updateMessage(messageId, request);
+        MessageDto updatedMessage = messageService.update(messageId, request);
 
         log.info("Message updated successfully: id = {}", updatedMessage.id());
 
@@ -93,7 +95,7 @@ public class MessageController implements MessageApi {
     public ResponseEntity<Void> deleteMessageById(@PathVariable("messageId") UUID messageId) {
         log.info("Deleting message: id = {}", messageId);
 
-        messageService.deleteMessage(messageId);
+        messageService.delete(messageId);
 
         log.info("Message deleted successfully: id = {}", messageId);
 

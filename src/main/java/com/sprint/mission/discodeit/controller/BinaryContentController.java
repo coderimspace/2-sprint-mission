@@ -25,7 +25,7 @@ public class BinaryContentController implements BinaryContentApi {
     @Override
     @GetMapping("/{binaryContentId}")
     public ResponseEntity<BinaryContentDto> findBinaryContent(
-            @PathVariable("binaryContentId") UUID binaryContentId) {
+        @PathVariable("binaryContentId") UUID binaryContentId) {
         BinaryContentDto binaryContent = binaryContentService.find(binaryContentId);
         return ResponseEntity.status(HttpStatus.OK).body(binaryContent);
     }
@@ -33,21 +33,23 @@ public class BinaryContentController implements BinaryContentApi {
     @Override
     @GetMapping
     public ResponseEntity<List<BinaryContentDto>> findAllBinaryContentByIds(
-            @RequestParam("binaryContentIds") List<UUID> binaryContentIds) {
-        List<BinaryContentDto> binaryContents = binaryContentService.findAllByIdIn(binaryContentIds);
+        @RequestParam("binaryContentIds") List<UUID> binaryContentIds) {
+        List<BinaryContentDto> binaryContents = binaryContentService.findAllByIdIn(
+            binaryContentIds);
         return ResponseEntity.ok(binaryContents);
     }
 
     @Override
     @GetMapping("/{binaryContentId}/download")
     public ResponseEntity<?> download(
-            @PathVariable("binaryContentId") UUID binaryContentId) {
+        @PathVariable("binaryContentId") UUID binaryContentId) {
         log.info("Request to download file: id = {}", binaryContentId);
 
         BinaryContentDto dto = binaryContentService.find(binaryContentId);
+        ResponseEntity<?> response = binaryContentStorage.download(dto);
 
-        log.info("File downloaded successfully: filename = {}", dto.fileName());
-
-        return binaryContentStorage.download(dto);
+        log.debug("바이너리 컨텐츠 다운로드 응답: contentType={},contentLength={}",
+            response.getHeaders().getContentType(), response.getHeaders().getContentLength());
+        return response;
     }
 }

@@ -1,16 +1,12 @@
 package com.sprint.mission.discodeit.entity;
 
+import com.sprint.mission.discodeit.entity.base.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import java.time.Instant;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -20,18 +16,10 @@ import lombok.NoArgsConstructor;
 @Table(name = "notifications")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Notification {
+public class Notification extends BaseEntity {
 
-    @Id
-    @GeneratedValue
-    private UUID id;
-
-    @Column(name = "created_at", columnDefinition = "TIMESTAMP WITH TIME ZONE", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "receiver_id", columnDefinition = "UUID", nullable = false)
-    private User receiver;
+    private UUID receiverId;
 
     @Column(nullable = false)
     private String title;
@@ -43,16 +31,19 @@ public class Notification {
     @Column(nullable = false)
     private NotificationType type;
 
-    @Column(name = "target_id")
+    @Column(name = "target_id", columnDefinition = "UUID")
     private UUID targetId;
 
-    public Notification(User receiver, String title, String content, NotificationType type,
-        UUID targetId) {
-        this.receiver = receiver;
+    public Notification(UUID receiverId, String title, String content, NotificationType type) {
+        this.receiverId = receiverId;
         this.title = title;
         this.content = content;
         this.type = type;
+    }
+
+    public Notification(UUID receiverId, String title, String content, NotificationType type,
+        UUID targetId) {
+        this(receiverId, title, content, type);
         this.targetId = targetId;
-        this.createdAt = Instant.now();
     }
 }

@@ -6,8 +6,7 @@ import com.sprint.mission.discodeit.dto.message.MessageDto;
 import com.sprint.mission.discodeit.dto.message.MessageUpdateRequest;
 import com.sprint.mission.discodeit.dto.response.PageResponse;
 import com.sprint.mission.discodeit.entity.*;
-import com.sprint.mission.discodeit.event.NotificationEvent;
-import com.sprint.mission.discodeit.event.NotificationEventPublisher;
+import com.sprint.mission.discodeit.event.NewMessageEvent;
 import com.sprint.mission.discodeit.exception.channel.ChannelNotFoundException;
 import com.sprint.mission.discodeit.exception.message.MessageNotFoundException;
 import com.sprint.mission.discodeit.exception.user.UserNotFoundException;
@@ -15,10 +14,12 @@ import com.sprint.mission.discodeit.mapper.MessageMapper;
 import com.sprint.mission.discodeit.mapper.PageResponseMapper;
 import com.sprint.mission.discodeit.repository.*;
 import com.sprint.mission.discodeit.service.MessageService;
-import com.sprint.mission.discodeit.service.async.BinaryContentAsyncService;
 import com.sprint.mission.discodeit.storage.BinaryContentStorage;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,20 +39,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class BasicMessageService implements MessageService {
 
     private final MessageRepository messageRepository;
-
     private final UserRepository userRepository;
     private final ChannelRepository channelRepository;
-    private final BinaryContentRepository binaryContentRepository;
-
     private final MessageMapper messageMapper;
-
     private final BinaryContentStorage binaryContentStorage;
-
+    private final BinaryContentRepository binaryContentRepository;
     private final PageResponseMapper pageResponseMapper;
 
-    private final BinaryContentAsyncService binaryContentAsyncService;
-    private final ReadStatusRepository readStatusRepository;
-    private final NotificationEventPublisher notificationEventPublisher;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     @Override
@@ -75,7 +70,7 @@ public class BasicMessageService implements MessageService {
                 log.warn("Author not found : id = {}", authorId);
                 return UserNotFoundException.withId(authorId);
             });
-
+        Map<UUID, byte[]> bytesMap = new HashMap<>();
         List<BinaryContent> attachments = binaryContentCreateRequests.stream()
             .map(request -> {
                 BinaryContent binaryContent = new BinaryContent(
@@ -85,20 +80,35 @@ public class BasicMessageService implements MessageService {
                 );
                 log.debug("Attachment saved: id = {}, filename = {}", binaryContent.getId(),
                     binaryContent.getFileName());
-                binaryContent.setUploadStatus(BinaryContentUploadStatus.WAITING);
                 binaryContentRepository.save(binaryContent);
-                TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            binaryContentAsyncService.uploadFile(binaryContent.getId(),
-                                request.bytes());
-                        }
-                    }
-                );
+                UUID binaryContentId = binaryContent.getId();
+                bytesMap.put(binaryContentId, request.bytes());
                 return binaryContent;
             })
             .toList();
+
+        TransactionSynchronizationManager.registerSynchronization(
+            new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    attachments.forEach(binaryContent -> {
+                        UUID binaryContentId = binaryContent.getId();
+                        binaryContentStorage.putAsync(binaryContentId,
+                                bytesMap.get(binaryContentId))
+                            .thenAccept(result -> {
+                                log.debug("메세지에 포함된 첨부파일 업로드 성공: {}", binaryContentId);
+                                binaryContentRepository.updateUploadStatus(binaryContentId,
+                                    BinaryContentUploadStatus.SUCCESS);
+                            })
+                            .exceptionally(ex -> {
+                                log.error("메세지에 포함된 첨부파일 업로드 실패: {}", binaryContentId, ex);
+                                binaryContentRepository.updateUploadStatus(binaryContentId,
+                                    BinaryContentUploadStatus.FAILED);
+                                return null;
+                            });
+                    });
+                }
+            });
 
         Message message = new Message(
             content,
@@ -106,30 +116,18 @@ public class BasicMessageService implements MessageService {
             author,
             attachments
         );
-        messageRepository.save(message);
 
+        messageRepository.save(message);
         log.info("Message created successfully: id = {}", message.getId());
 
-        List<ReadStatus> readStatuses = readStatusRepository.findAllByChannelIdWithUser(channelId);
-        for (ReadStatus readStatus : readStatuses) {
-            if (readStatus.isNotificationEnabled() && !readStatus.getUser().getId()
-                .equals(author.getId())) {
-                notificationEventPublisher.publish(new NotificationEvent(
-                    readStatus.getUser().getId(),
-                    "[" + channel.getName() + "]에 새로운 메시지가 도착했습니다.",
-                    content,
-                    NotificationType.NEW_MESSAGE,
-                    channelId
-                ));
-            }
-        }
-
-        return messageMapper.toDto(message);
+        MessageDto messageDto = messageMapper.toDto(message);
+        eventPublisher.publishEvent(new NewMessageEvent(messageDto));
+        return messageDto;
     }
 
     @Transactional(readOnly = true)
     @Override
-    public MessageDto searchMessage(UUID messageId) {
+    public MessageDto find(UUID messageId) {
         Message message = getMessage(messageId);
         return messageMapper.toDto(message);
     }
@@ -154,7 +152,7 @@ public class BasicMessageService implements MessageService {
     @PreAuthorize("hasPermission(#messageId,'Message','update')")
     @Transactional
     @Override
-    public MessageDto updateMessage(UUID messageId, MessageUpdateRequest request) {
+    public MessageDto update(UUID messageId, MessageUpdateRequest request) {
         log.info("Updating message : id = {}", messageId);
 
         String newContent = request.newContent();
@@ -169,7 +167,7 @@ public class BasicMessageService implements MessageService {
     @PreAuthorize("hasPermission(#messageId,'Message','delete')")
     @Transactional
     @Override
-    public void deleteMessage(UUID messageId) {
+    public void delete(UUID messageId) {
         log.info("Deleting message : id = {}", messageId);
 
         if (!messageRepository.existsById(messageId)) {

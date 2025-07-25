@@ -5,6 +5,7 @@ import com.sprint.mission.discodeit.dto.channel.PrivateChannelCreateRequest;
 import com.sprint.mission.discodeit.dto.channel.PublicChannelCreateRequest;
 import com.sprint.mission.discodeit.dto.channel.PublicChannelUpdateRequest;
 import com.sprint.mission.discodeit.entity.*;
+import com.sprint.mission.discodeit.event.PrivateChannelCreatedEvent;
 import com.sprint.mission.discodeit.exception.channel.ChannelNotFoundException;
 import com.sprint.mission.discodeit.exception.channel.PrivateChannelUpdateException;
 import com.sprint.mission.discodeit.mapper.ChannelMapper;
@@ -12,7 +13,9 @@ import com.sprint.mission.discodeit.repository.*;
 import com.sprint.mission.discodeit.service.ChannelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,12 +26,14 @@ import java.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class BasicChannelService implements ChannelService {
+
     private final ChannelRepository channelRepository;
     private final ReadStatusRepository readStatusRepository;
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
 
     private final ChannelMapper channelMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     @Override
@@ -38,18 +43,22 @@ public class BasicChannelService implements ChannelService {
         Channel channel = new Channel(ChannelType.PRIVATE, null, null);
         channelRepository.save(channel);
 
-        List<ReadStatus> readStatuses = userRepository.findAllById(request.participantIds()).stream()
-                .map(user -> new ReadStatus(user, channel, channel.getCreatedAt()))
-                .toList();
+        List<ReadStatus> readStatuses = userRepository.findAllById(request.participantIds())
+            .stream()
+            .map(user -> new ReadStatus(user, channel, channel.getCreatedAt()))
+            .toList();
         readStatusRepository.saveAll(readStatuses);
 
         log.info("Private channel created successfully : id = {}", channel.getId());
-
-        return channelMapper.toDto(channel);
+        ChannelDto channelDto = channelMapper.toDto(channel);
+        eventPublisher.publishEvent(
+            new PrivateChannelCreatedEvent(channelDto, request.participantIds()));
+        return channelDto;
     }
 
     @PreAuthorize("hasRole('CHANNEL_MANAGER')")
     @Transactional
+    @CacheEvict(value = "channelsByUser", allEntries = true)
     @Override
     public ChannelDto create(PublicChannelCreateRequest request) {
         log.info("Creating public channel");
@@ -65,27 +74,28 @@ public class BasicChannelService implements ChannelService {
 
     @Transactional(readOnly = true)
     @Override
-    public ChannelDto searchChannel(UUID channelId) {
+    public ChannelDto find(UUID channelId) {
         Channel channel = getChannel(channelId);
         return channelMapper.toDto(channel);
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "channelsByUser", key = "#userId", unless = "#result.isEmpty()")
     @Override
-    @Cacheable(cacheNames = "channelList", key = "#userId")
     public List<ChannelDto> findAllChannelsByUserId(UUID userId) {
         List<UUID> subscribedChannelIds = readStatusRepository.findAllByUserId(userId).stream()
-                .map(readStatus -> readStatus.getChannel().getId())
-                .toList();
+            .map(readStatus -> readStatus.getChannel().getId())
+            .toList();
 
         return channelRepository.findAllByTypeOrIdIn(ChannelType.PUBLIC, subscribedChannelIds)
-                .stream()
-                .map(channelMapper::toDto)
-                .toList();
+            .stream()
+            .map(channelMapper::toDto)
+            .toList();
     }
 
     @PreAuthorize("hasRole('CHANNEL_MANAGER')")
     @Transactional
+    @CacheEvict(value = "channelsByUser", allEntries = true)
     @Override
     public ChannelDto updateChannel(UUID channelId, PublicChannelUpdateRequest request) {
         log.info("Updating public channel : id = {}", channelId);
@@ -107,6 +117,7 @@ public class BasicChannelService implements ChannelService {
 
     @PreAuthorize("hasRole('CHANNEL_MANAGER')")
     @Transactional
+    @CacheEvict(value = "channelsByUser", allEntries = true)
     @Override
     public void deleteChannel(UUID channelId) {
         log.info("Deleting channel : id = {}", channelId);
@@ -124,10 +135,10 @@ public class BasicChannelService implements ChannelService {
 
     private Channel getChannel(UUID channelId) {
         return channelRepository.findById(channelId)
-                .orElseThrow(() -> {
-                    log.warn("Channel with id {} not found", channelId);
-                    return ChannelNotFoundException.withId(channelId);
-                });
+            .orElseThrow(() -> {
+                log.warn("Channel with id {} not found", channelId);
+                return ChannelNotFoundException.withId(channelId);
+            });
     }
 }
 
